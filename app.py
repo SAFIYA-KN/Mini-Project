@@ -1,0 +1,370 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import joblib
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+
+st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
+
+# =========================
+# CUSTOM CSS
+# =========================
+st.markdown("""
+<style>
+.main-header {
+    background: linear-gradient(to right, #2c3e50, #4b6cb7);
+    padding: 18px;
+    border-radius: 12px;
+    color: white;
+    font-size: 26px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.card {
+    padding: 20px;
+    border-radius: 14px;
+    text-align: center;
+    color: white;
+    font-weight: 600;
+}
+
+.section-title {
+    background-color: #1f2937;
+    padding: 12px;
+    border-radius: 10px;
+    color: white;
+    font-weight: 600;
+    margin-top: 30px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================
+# LOAD DATA
+# =========================
+df = pd.read_csv("city_day.csv")
+df["Date"] = pd.to_datetime(df["Date"])
+df = df.sort_values("Date")
+
+FEATURES = ["AQI","PM2.5","PM10","NO2","SO2","CO","O3"]
+WINDOW = 7
+
+df = df[["City","Date"] + FEATURES]
+df = df.fillna(df.mean(numeric_only=True))
+
+# =========================
+# LOAD MODELS
+# =========================
+scaler = joblib.load("aqi_scaler.pkl")
+rf_model = joblib.load("random_forest_aqi_model.pkl")
+xgb_model = joblib.load("xgboost_aqi_model.pkl")
+feature_columns = joblib.load("feature_columns.pkl")
+
+# =========================
+# RECREATE LSTM MODEL
+# =========================
+lstm_model = Sequential([
+    LSTM(64, activation="tanh", input_shape=(WINDOW, len(FEATURES))),
+    Dense(1)
+])
+
+lstm_model.load_weights("aqi_lstm_model.h5")
+
+# =========================
+# AQI CATEGORY FUNCTION
+# =========================
+def categorize_aqi(aqi):
+
+    if aqi <= 50:
+        return "Good"
+    elif aqi <= 100:
+        return "Moderate"
+    elif aqi <= 150:
+        return "Unhealthy (Sensitive)"
+    elif aqi <= 200:
+        return "Unhealthy"
+    elif aqi <= 300:
+        return "Very Unhealthy"
+    else:
+        return "Hazardous"
+
+
+def get_color(category):
+
+    if category == "Good":
+        return "#16a34a"
+    elif category == "Moderate":
+        return "#facc15"
+    elif category == "Unhealthy (Sensitive)":
+        return "#f97316"
+    else:
+        return "#dc2626"
+
+# =========================
+# POLLUTANT → DISEASE MAP
+# =========================
+pollutant_disease_risks = {
+
+    "PM2.5":[
+        "Asthma attacks",
+        "Bronchitis",
+        "Reduced lung function",
+        "Heart disease risk",
+        "Lung cancer"
+    ],
+
+    "PM10":[
+        "Respiratory irritation",
+        "Asthma aggravation",
+        "Bronchitis",
+        "Reduced lung capacity"
+    ],
+
+    "NO2":[
+        "Inflammation of airways",
+        "Asthma worsening",
+        "Respiratory infections"
+    ],
+
+    "SO2":[
+        "Breathing difficulty",
+        "Asthma attacks",
+        "Bronchial irritation"
+    ],
+
+    "CO":[
+        "Reduced oxygen supply",
+        "Headaches",
+        "Dizziness",
+        "Heart stress"
+    ],
+
+    "O3":[
+        "Chest pain",
+        "Coughing",
+        "Lung inflammation",
+        "Reduced lung function"
+    ]
+}
+
+# =========================
+# CPCB SAFE LIMITS
+# =========================
+pollutant_thresholds = {
+    "PM2.5": 60,
+    "PM10": 100,
+    "NO2": 80,
+    "SO2": 80,
+    "CO": 2,
+    "O3": 100
+}
+
+# =========================
+# HEADER
+# =========================
+st.markdown(
+'<div class="main-header">ML Driven Air Quality Forecasting & Health Risk Analysis</div>',
+unsafe_allow_html=True
+)
+
+# =========================
+# INPUT
+# =========================
+col1,col2 = st.columns([3,1])
+
+with col1:
+    cities = sorted(df["City"].unique())
+    city = st.selectbox("Select City", cities)
+
+with col2:
+    predict = st.button("Predict")
+
+# =========================
+# PREDICTION
+# =========================
+if predict:
+
+    city_df = df[df["City"]==city].sort_values("Date")
+
+    if len(city_df) < WINDOW:
+
+        st.error("Not enough data for prediction.")
+
+    else:
+
+        # =========================
+        # LSTM PREDICTION
+        # =========================
+        input_data = city_df.tail(WINDOW)[FEATURES].values
+        input_scaled = scaler.transform(input_data)
+
+        predictions_lstm = []
+        current_window = input_scaled.copy()
+
+        for _ in range(5):
+
+            reshaped = current_window.reshape(1,WINDOW,len(FEATURES))
+            pred_scaled = lstm_model.predict(reshaped, verbose=0)[0][0]
+
+            aqi_mean = scaler.mean_[0]
+            aqi_std = scaler.scale_[0]
+
+            pred_aqi = (pred_scaled * aqi_std) + aqi_mean
+            predictions_lstm.append(pred_aqi)
+
+            new_row = current_window[-1].copy()
+            new_row[0] = pred_scaled
+            current_window = np.vstack([current_window[1:], new_row])
+
+        lstm_aqi = float(predictions_lstm[-1])
+        lstm_category = categorize_aqi(lstm_aqi)
+        card_color = get_color(lstm_category)
+
+        trend = "Rising" if predictions_lstm[-1] > predictions_lstm[0] else "Falling"
+
+        # =========================
+        # TREE MODEL INPUT
+        # =========================
+        latest = city_df.tail(1).copy()
+
+        latest["Month"] = latest["Date"].dt.month
+        latest["DayOfWeek"] = latest["Date"].dt.dayofweek
+
+        latest_input = latest[
+            ["City","PM2.5","PM10","NO2","SO2","CO","O3","Month","DayOfWeek"]
+        ]
+
+        latest_input = pd.get_dummies(latest_input, columns=["City"], drop_first=True)
+
+        latest_input = latest_input.reindex(columns=feature_columns, fill_value=0)
+
+        # =========================
+        # RF + XGB PREDICTION
+        # =========================
+        rf_aqi = float(rf_model.predict(latest_input)[0])
+        rf_category = categorize_aqi(rf_aqi)
+
+        xgb_aqi = float(xgb_model.predict(latest_input)[0])
+        xgb_category = categorize_aqi(xgb_aqi)
+
+        # =========================
+        # KPI CARDS
+        # =========================
+        st.markdown("---")
+
+        c1,c2,c3,c4 = st.columns(4)
+
+        c1.markdown(
+        f'<div class="card" style="background:{card_color};">Predicted AQI<br><h2>{lstm_aqi:.2f}</h2>{lstm_category}</div>',
+        unsafe_allow_html=True
+        )
+
+        c2.markdown(
+        f'<div class="card" style="background:{card_color};">AQI Trend<br><h2>{trend}</h2></div>',
+        unsafe_allow_html=True
+        )
+
+        latest_pollutants = city_df.tail(1)[FEATURES].iloc[0]
+        dominant_pollutant = latest_pollutants[1:].idxmax()
+
+        c3.markdown(
+        f'<div class="card" style="background:{card_color};">Dominant Pollutant<br><h2>{dominant_pollutant}</h2></div>',
+        unsafe_allow_html=True
+        )
+
+        c4.markdown(
+        f'<div class="card" style="background:{card_color};">Health Risk<br><h2>{lstm_category}</h2></div>',
+        unsafe_allow_html=True
+        )
+
+        # =========================
+        # TREND GRAPH
+        # =========================
+        st.markdown('<div class="section-title">AQI Prediction Trend (LSTM)</div>', unsafe_allow_html=True)
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=list(range(1,6)),
+            y=predictions_lstm,
+            mode='lines+markers',
+            name="LSTM Forecast"
+        ))
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # =========================
+        # MODEL COMPARISON
+        # =========================
+        st.markdown('<div class="section-title">Model Comparison</div>', unsafe_allow_html=True)
+
+        comparison_df = pd.DataFrame({
+
+            "Model":["LSTM","Random Forest","XGBoost"],
+
+            "Predicted AQI":[
+                round(lstm_aqi,2),
+                round(rf_aqi,2),
+                round(xgb_aqi,2)
+            ],
+
+            "Category":[
+                lstm_category,
+                rf_category,
+                xgb_category
+            ]
+        })
+
+        st.dataframe(comparison_df, use_container_width=True)
+
+        # =========================
+        # HEALTH RISK ANALYSIS
+        # =========================
+        st.markdown('<div class="section-title">Health Risk Analysis</div>', unsafe_allow_html=True)
+
+        identified_risks = []
+        dangerous_pollutants = []
+
+        for pollutant, value in latest_pollutants.items():
+
+            if pollutant in pollutant_thresholds:
+
+                if value > pollutant_thresholds[pollutant]:
+
+                    dangerous_pollutants.append((pollutant, value))
+                    identified_risks.extend(pollutant_disease_risks[pollutant])
+
+        colA,colB = st.columns(2)
+
+        with colA:
+
+            st.subheader("Pollutants Above Safe Limits")
+
+            if dangerous_pollutants:
+
+                pollutants_df = pd.DataFrame(
+                    dangerous_pollutants,
+                    columns=["Pollutant","Level"]
+                )
+
+                st.dataframe(pollutants_df)
+
+            else:
+
+                st.success("All pollutant levels are within safe limits.")
+
+        with colB:
+
+            st.subheader("Possible Health Effects")
+
+            if identified_risks:
+
+                for risk in set(identified_risks):
+                    st.write("•", risk)
+
+            else:
+
+                st.success("No major health risks detected based on pollutant levels.")
