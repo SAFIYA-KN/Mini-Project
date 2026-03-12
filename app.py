@@ -222,7 +222,7 @@ if predict:
         gru_aqi=float(predictions_gru[-1])
         gru_category=categorize_aqi(gru_aqi)
 
-        card_color=get_color(lstm_category)
+        
 
         # =========================
         # TREE MODELS
@@ -259,18 +259,19 @@ if predict:
         svm_aqi = float(svm_model.predict(latest_input)[0])
         svm_category = categorize_aqi(svm_aqi)
 
+        card_color=get_color(rf_category)
         # =========================
         # KPI CARDS
         # =========================
         st.markdown("---")
-
+        rf_prediction=[rf_aqi]*5
         c1,c2,c3,c4=st.columns(4)
 
         c1.markdown(
-        f'<div class="card" style="background:{card_color};">Predicted AQI<br><h2>{lstm_aqi:.2f}</h2>{lstm_category}</div>',
+        f'<div class="card" style="background:{card_color};">Predicted AQI<br><h2>{rf_aqi:.2f}</h2>{rf_category}</div>',
         unsafe_allow_html=True)
 
-        trend="Rising" if predictions_lstm[-1]>predictions_lstm[0] else "Falling"
+        trend="Rising" if rf_prediction[-1]>rf_prediction[0] else "Falling"
 
         c2.markdown(
         f'<div class="card" style="background:{card_color};">AQI Trend<br><h2>{trend}</h2></div>',
@@ -285,7 +286,7 @@ if predict:
         unsafe_allow_html=True)
 
         c4.markdown(
-        f'<div class="card" style="background:{card_color};">Health Risk<br><h2>{lstm_category}</h2></div>',
+        f'<div class="card" style="background:{card_color};">Health Risk<br><h2>{rf_category}</h2></div>',
         unsafe_allow_html=True)
 
         # =========================
