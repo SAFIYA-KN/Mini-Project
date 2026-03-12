@@ -21,7 +21,7 @@ df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values("Date")
 
 FEATURES = ["AQI","PM2.5","PM10","NO2","SO2","CO","O3","NH3"]# FIXED WINDOW SIZE
-WINDOW = 7
+WINDOW = 10
 
 df = df[["city","Date"] + FEATURES]
 df = df.fillna(df.mean(numeric_only=True))
@@ -56,21 +56,31 @@ def categorize_aqi(aqi):
         return "Unhealthy (Sensitive)"
     elif aqi <= 200:
         return "Unhealthy"
-    elif aqi <= 300:
-        return "Very Unhealthy"
     else:
         return "Hazardous"
 
 def get_color(category):
 
     if category == "Good":
-        return "#16a34a"
+        return "#22c55e"       
+
     elif category == "Moderate":
-        return "#facc15"
+        return "#eab308"      
+
     elif category == "Unhealthy (Sensitive)":
-        return "#f97316"
+        return "#f97316"      
+
+    elif category == "Unhealthy":
+        return "#fb923c"       
+
+    elif category == "Very Unhealthy":
+        return "#ea580c"        
+
+    elif category == "Hazardous":
+        return "#dc2626"        
+
     else:
-        return "#dc2626"
+        return "#6b7280"        
 
 # =========================
 # HEALTH RISKS
@@ -261,18 +271,20 @@ if predict:
         svm_aqi = float(svm_model.predict(latest_input)[0])
         svm_category = categorize_aqi(svm_aqi)
 
+        card_color=get_color(rf_category)
         # =========================
         # KPI CARDS
         # =========================
         st.markdown("---")
-
+        rf_prediction=[rf_aqi]*5
         c1,c2,c3,c4=st.columns(4)
         predictions_rf=[rf_aqi]*5
         c1.markdown(
         f'<div class="card" style="background:{card_color};">Predicted AQI<br><h2>{rf_aqi:.2f}</h2>{rf_category}</div>',
         unsafe_allow_html=True)
 
-        trend="Rising" if predictions_rf[-1]>predictions_rf[0] else "Falling"
+
+        trend="Rising" if rf_prediction[-1]>rf_prediction[0] else "Falling"
 
         c2.markdown(
         f'<div class="card" style="background:{card_color};">AQI Trend<br><h2>{trend}</h2></div>',
