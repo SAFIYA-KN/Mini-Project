@@ -56,21 +56,31 @@ def categorize_aqi(aqi):
         return "Unhealthy (Sensitive)"
     elif aqi <= 200:
         return "Unhealthy"
-    elif aqi <= 300:
-        return "Very Unhealthy"
     else:
         return "Hazardous"
 
 def get_color(category):
 
     if category == "Good":
-        return "#16a34a"
+        return "#22c55e"       
+
     elif category == "Moderate":
-        return "#facc15"
+        return "#eab308"      
+
     elif category == "Unhealthy (Sensitive)":
-        return "#f97316"
+        return "#f97316"      
+
+    elif category == "Unhealthy":
+        return "#fb923c"       
+
+    elif category == "Very Unhealthy":
+        return "#ea580c"        
+
+    elif category == "Hazardous":
+        return "#dc2626"        
+
     else:
-        return "#dc2626"
+        return "#6b7280"        
 
 # =========================
 # HEALTH RISKS
@@ -259,7 +269,7 @@ if predict:
         svm_aqi = float(svm_model.predict(latest_input)[0])
         svm_category = categorize_aqi(svm_aqi)
 
-        card_color=get_color(rf_category)
+        card_color=get_color(rf_category)p
         # =========================
         # KPI CARDS
         # =========================
