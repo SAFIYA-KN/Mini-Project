@@ -21,7 +21,7 @@ df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values("Date")
 
 FEATURES = ["AQI","PM2.5","PM10","NO2","SO2","CO","O3","NH3"]# FIXED WINDOW SIZE
-WINDOW = 7
+WINDOW = 10
 
 df = df[["city","Date"] + FEATURES]
 df = df.fillna(df.mean(numeric_only=True))
